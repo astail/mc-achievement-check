@@ -1,0 +1,22 @@
+name: AchievementCheck
+version: 1.0.0
+main: io.github.astail.achievementcheck.AchievementCheckPlugin
+description: "バニラ実績の達成状況と不足条件（未訪問バイオームなど）を確認できるプラグインです。"
+api-version: '26.2'
+author: astail
+
+commands:
+  achievementcheck:
+    description: "実績の達成状況と不足条件を確認します。"
+    usage: "/achievementcheck [<実績名>|reload]"
+    aliases: [ac]
+    permission: achievementcheck.use
+    permission-message: "§cこのコマンドを実行する権限がありません。"
+
+permissions:
+  achievementcheck.use:
+    description: "/ac で自分の実績進捗（GUI・詳細表示）を確認できる。"
+    default: true
+  achievementcheck.manage:
+    description: "/ac reload など、サーバー全体に影響する操作を許可します。"
+    default: op

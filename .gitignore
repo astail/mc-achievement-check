@@ -1,0 +1,16 @@
+# Build output
+target/
+*.jar
+*.class
+
+# IDE
+.idea/
+*.iml
+.vscode/
+*.code-workspace
+
+# OS
+.DS_Store
+
+# Tooling
+.serena/
