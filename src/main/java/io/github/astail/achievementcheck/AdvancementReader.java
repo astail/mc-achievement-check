@@ -1,7 +1,10 @@
 package io.github.astail.achievementcheck;
 
 import io.papermc.paper.advancement.AdvancementDisplay;
+import io.papermc.paper.registry.RegistryAccess;
+import io.papermc.paper.registry.RegistryKey;
 import net.kyori.adventure.text.Component;
+import org.bukkit.Keyed;
 import org.bukkit.Material;
 import org.bukkit.NamespacedKey;
 import org.bukkit.Registry;
@@ -12,9 +15,12 @@ import org.bukkit.entity.EntityType;
 import org.bukkit.entity.Player;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * 実績（advancement）の読み取りと条件名の解決を担う中核。
@@ -26,6 +32,9 @@ import java.util.Locale;
 public final class AdvancementReader {
 
     private final AchievementCheckPlugin plugin;
+
+    /** 実績ごとのバリアント種別（猫/狼/蛙）のキャッシュ。実行中は実績が不変なので一度判定すれば足りる。 */
+    private final Map<NamespacedKey, VariantFamily> variantFamilyCache = new ConcurrentHashMap<>();
 
     public AdvancementReader(AchievementCheckPlugin plugin) {
         this.plugin = plugin;
@@ -108,18 +117,71 @@ public final class AdvancementReader {
     // ───────────────────────── 条件名の解決 ─────────────────────────
 
     /**
-     * 条件キー（例 {@code minecraft:plains}）を表示用 Component にする。
-     * translatable なのでクライアント言語で表示され、翻訳できないときは整形したキーをフォールバック表示する。
+     * 条件キー（例 {@code minecraft:plains}）を、実績の文脈に応じて表示用 Component にする。
+     *
+     * <p>猫/狼/蛙のバリアント実績はバニラに翻訳文字列が（どの言語にも）存在しないため、本プラグインが
+     * 内蔵する日本語名を使う（{@link VariantFamily}）。それ以外は translatable で送り、クライアント言語で
+     * 表示する。translatable で解決できないときは整形したキー名にフォールバックする。</p>
      */
-    public Component criterionName(String criterion) {
+    public Component criterionName(Advancement adv, String criterion) {
+        VariantFamily family = variantFamilyOf(adv);
+        if (family != VariantFamily.NONE) {
+            String name = family.japaneseName(stripNamespace(criterion));
+            if (name != null) {
+                return Component.text(name);
+            }
+        }
         return Component.translatable(translationKeyFor(criterion), humanize(stripNamespace(criterion)));
+    }
+
+    /** 実績のバリアント種別を判定（キャッシュ付き）。 */
+    private VariantFamily variantFamilyOf(Advancement adv) {
+        return variantFamilyCache.computeIfAbsent(adv.getKey(), k -> computeVariantFamily(adv));
+    }
+
+    /**
+     * 実績の全条件が単一のバリアントレジストリ（猫/狼/蛙）に属するなら、その種別を返す。
+     * 全条件をまとめて見ることで、猫・狼に共通する {@code black} のような id も取り違えない。
+     */
+    private static VariantFamily computeVariantFamily(Advancement adv) {
+        Collection<String> criteria = adv.getCriteria();
+        if (criteria.isEmpty()) {
+            return VariantFamily.NONE;
+        }
+        if (allCriteriaIn(criteria, RegistryKey.CAT_VARIANT)) {
+            return VariantFamily.CAT;
+        }
+        if (allCriteriaIn(criteria, RegistryKey.WOLF_VARIANT)) {
+            return VariantFamily.WOLF;
+        }
+        if (allCriteriaIn(criteria, RegistryKey.FROG_VARIANT)) {
+            return VariantFamily.FROG;
+        }
+        return VariantFamily.NONE;
+    }
+
+    /** 全条件キーが指定レジストリに存在するか。公式 API（{@link RegistryAccess}）のみで判定する。 */
+    private static <T extends Keyed> boolean allCriteriaIn(Collection<String> criteria, RegistryKey<T> regKey) {
+        Registry<T> registry = RegistryAccess.registryAccess().getRegistry(regKey);
+        for (String criterion : criteria) {
+            NamespacedKey key = NamespacedKey.fromString(criterion);
+            if (key == null || registry.get(key) == null) {
+                return false;
+            }
+        }
+        return true;
     }
 
     /**
      * 条件キーから、クライアントが解釈する translation key を推定する。
-     * Mob → entity.*、アイテム/ブロック → block./item.*、それ以外（バイオーム等）→ biome.* を試みる。
+     * 防具の鍛冶模様（複合条件名）→ trim_pattern.*、Mob → entity.*、アイテム/ブロック → block./item.*、
+     * それ以外（バイオーム等）→ biome.* を試みる。
      */
     static String translationKeyFor(String criterion) {
+        String trimKey = trimPatternTranslationKey(criterion);
+        if (trimKey != null) {
+            return trimKey;
+        }
         NamespacedKey key = NamespacedKey.fromString(criterion);
         String namespace = key != null ? key.getNamespace() : "minecraft";
         String path = key != null ? key.getKey() : stripNamespace(criterion);
@@ -134,6 +196,29 @@ public final class AdvancementReader {
             return material.translationKey();
         }
         return "biome." + namespace + "." + path;
+    }
+
+    /**
+     * 「Smithing with Style」の条件名から鍛冶模様の translation key を取り出す。Bukkit 非依存の純粋関数。
+     *
+     * <p>条件名は {@code armor_trimmed_<ns>:<pattern>_armor_trim_smithing_template_smithing_trim} 形式で、
+     * これを {@code trim_pattern.<ns>.<pattern>}（例 {@code trim_pattern.minecraft.rib}）に変換する。
+     * バニラに翻訳キーがあるためクライアント言語で正しく表示される。形式が一致しなければ {@code null}。</p>
+     */
+    static String trimPatternTranslationKey(String criterion) {
+        final String prefix = "armor_trimmed_";
+        final String suffix = "_armor_trim_smithing_template_smithing_trim";
+        if (!criterion.startsWith(prefix) || !criterion.endsWith(suffix)) {
+            return null;
+        }
+        String mid = criterion.substring(prefix.length(), criterion.length() - suffix.length());
+        int colon = mid.indexOf(':');
+        String namespace = colon >= 0 ? mid.substring(0, colon) : "minecraft";
+        String pattern = colon >= 0 ? mid.substring(colon + 1) : mid;
+        if (namespace.isEmpty() || pattern.isEmpty()) {
+            return null;
+        }
+        return "trim_pattern." + namespace + "." + pattern;
     }
 
     /** {@code "minecraft:deep_dark"} → {@code "Deep Dark"}。Bukkit 非依存の純粋関数。 */
@@ -162,5 +247,59 @@ public final class AdvancementReader {
     public static String stripNamespace(String key) {
         int idx = key.indexOf(':');
         return idx >= 0 ? key.substring(idx + 1) : key;
+    }
+
+    /**
+     * 猫・狼・蛙のバリアント実績と、その内蔵日本語名。
+     *
+     * <p>これらのバリアント名はバニラの言語ファイルに翻訳文字列が存在しない（どの言語でも
+     * {@code entity.minecraft.cat} = "Cat" のような親エンティティ名しか無い）。そのため translatable では
+     * 日本語化できず、本プラグインが日本語名を持つ。<b>名称は日本語 Minecraft Wiki に準拠し、クライアント言語に
+     * 関わらず日本語で表示される</b>（GUI のラベルが既に日本語ハードコードなのと同じ方針）。未知の id は
+     * {@code null} を返し、呼び出し側で整形キー名にフォールバックする。</p>
+     */
+    enum VariantFamily {
+        NONE(Map.of()),
+        // 「かわいいだけじゃない」: 猫の品種（日本語 Wiki 準拠）。
+        // black=タキシード柄(cat_black)・all_black=真っ黒(cat_all_black) はテクスチャ asset で確認済み。
+        CAT(Map.ofEntries(
+                Map.entry("tabby", "トラ"),
+                Map.entry("black", "タキシード"),
+                Map.entry("red", "レッド"),
+                Map.entry("siamese", "シャム"),
+                Map.entry("british_shorthair", "ブリティッシュショートヘア"),
+                Map.entry("calico", "三毛"),
+                Map.entry("persian", "ペルシャ"),
+                Map.entry("ragdoll", "ラグドール"),
+                Map.entry("white", "白"),
+                Map.entry("jellie", "ジェリー"),
+                Map.entry("all_black", "黒"))),
+        // 「群れの一員」: オオカミの毛色（日本語 Wiki 準拠）。
+        WOLF(Map.ofEntries(
+                Map.entry("pale", "白色"),
+                Map.entry("ashen", "灰色"),
+                Map.entry("black", "黒色"),
+                Map.entry("chestnut", "栗色"),
+                Map.entry("rusty", "赤茶"),
+                Map.entry("snowy", "雪"),
+                Map.entry("spotted", "まだら"),
+                Map.entry("striped", "しま"),
+                Map.entry("woods", "森"))),
+        // 「When the Squad Hops into Town」: カエルの種類（日本語 Wiki 準拠）。
+        FROG(Map.ofEntries(
+                Map.entry("temperate", "温帯種"),
+                Map.entry("warm", "熱帯種"),
+                Map.entry("cold", "冷帯種")));
+
+        private final Map<String, String> names;
+
+        VariantFamily(Map<String, String> names) {
+            this.names = names;
+        }
+
+        /** バリアント id（名前空間なし）の日本語名。無ければ {@code null}。 */
+        String japaneseName(String id) {
+            return names.get(id);
+        }
     }
 }

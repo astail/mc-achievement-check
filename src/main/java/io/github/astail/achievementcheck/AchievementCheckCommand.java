@@ -97,18 +97,18 @@ public final class AchievementCheckCommand implements CommandExecutor, TabComple
             return;
         }
         player.sendMessage(Component.text("未達成 (" + prog.remaining().size() + " 件):", NamedTextColor.RED));
-        sendCriteria(player, prog.remaining(), NamedTextColor.RED, "✘");
+        sendCriteria(player, adv, prog.remaining(), NamedTextColor.RED, "✘");
         if (plugin.isShowCompleted() && !prog.awarded().isEmpty()) {
             player.sendMessage(Component.text("達成済み (" + prog.awarded().size() + " 件):", NamedTextColor.GREEN));
-            sendCriteria(player, prog.awarded(), NamedTextColor.GREEN, "✔");
+            sendCriteria(player, adv, prog.awarded(), NamedTextColor.GREEN, "✔");
         }
     }
 
-    private void sendCriteria(Player player, List<String> criteria, NamedTextColor color, String mark) {
+    private void sendCriteria(Player player, Advancement adv, List<String> criteria, NamedTextColor color, String mark) {
         int shown = Math.min(criteria.size(), plugin.getMaxList());
         for (int i = 0; i < shown; i++) {
             player.sendMessage(noItalic(Component.text("  " + mark + " ", color)
-                    .append(reader.criterionName(criteria.get(i)).color(color))));
+                    .append(reader.criterionName(adv, criteria.get(i)).color(color))));
         }
         int rest = criteria.size() - shown;
         if (rest > 0) {

@@ -33,11 +33,19 @@ AchievementCheck は、各プレイヤーが `/ac` で**自分のバニラ実績
   AND 実績は「条件ごとに 1 要件グループ」になるため、`getRequirements().getRequirements().size() == getCriteria().size()`
   かつ条件数 > 1 で判別する（`AdvancementReader.isAndCollection`）。OR 実績（要件 1 グループ）はこれで除外される。
   さらに `getDisplay() == null`（レシピ解禁など非表示）と キーが `recipes/` のものを除外する。
-- **条件名のローカライズ**: 条件キー（例 `minecraft:plains`）を `Registry.ENTITY_TYPE` → `Material.matchMaterial` の
-  順で解決し、Mob は `entity.*`、アイテム/ブロックは `block./item.*`、それ以外（バイオーム等）は `biome.<ns>.<path>` の
-  translation key を組む。`Component.translatable(key, fallback)` で送るので、クライアント言語で表示され、
-  翻訳できないときは `humanize` した整形キー名にフォールバックする。実績タイトルは `getDisplay().title()`（Component）を
-  そのまま使う。
+- **条件名のローカライズ**: 条件キー（例 `minecraft:plains`）を、防具の鍛冶模様（複合条件名）→ `trim_pattern.*`、
+  Mob → `entity.*`、アイテム/ブロック → `block./item.*`、それ以外（バイオーム等）→ `biome.<ns>.<path>` の順で
+  translation key に解決する（`translationKeyFor`）。`Component.translatable(key, fallback)` で送るので、
+  クライアント言語で表示され、翻訳できないときは `humanize` した整形キー名にフォールバックする。実績タイトルは
+  `getDisplay().title()`（Component）をそのまま使う。
+- **バリアント実績の内蔵日本語名**: 猫（かわいいだけじゃない）・狼（群れの一員）・蛙（When the Squad Hops into Town）
+  のバリアント名は、**バニラの言語ファイルにどの言語の翻訳文字列も存在しない**（`entity.minecraft.cat`="Cat" 等の
+  親エンティティ名のみ）。そのため translatable では日本語化できず、プラグインが内蔵の日本語名を持つ
+  （`AdvancementReader.VariantFamily`。**名称は日本語 Minecraft Wiki 準拠・クライアント言語に関わらず日本語表示**。
+  GUI ラベルが日本語ハードコードなのと同じ方針。猫の `black`=タキシード柄 / `all_black`=真っ黒 はテクスチャ asset で確認）。
+  実績の種別は `RegistryAccess.getRegistry(RegistryKey.{CAT,WOLF,FROG}_VARIANT)` に
+  全条件が属するかで判定し（猫・狼共通の `black` も全条件を見るため取り違えない）、実績ごとにキャッシュする。
+  未知の id は `null` を返し、`humanize` 整形名にフォールバックする。
 - **GUI は読み取り専用**: チェスト型インベントリを `InventoryHolder`（`AchievementGui`）で識別し、`InventoryClickEvent` は
   常に `setCancelled(true)`。ナビゲーション（ページ送り・詳細遷移・戻る・閉じる）以外は何もしない。画面遷移のたびに
   新しいインスタンス＝新しい `Inventory` を生成して開き直す（状態管理を単純化）。アイコンは `getDisplay().icon()` を
@@ -51,6 +59,7 @@ AchievementCheck は、各プレイヤーが `/ac` で**自分のバニラ実績
 - オンラインの自分のみ確認可（他人・オフラインは非対応）。
 - バニラの実績画面（L キー）自体は改変できない（説明文は実績定義に固定・API 読取専用）。独自 GUI で代替している。
 - 条件名のローカライズはクライアント言語依存。翻訳不可なクライアントでは整形キー名が出る。
+  ただし猫・狼・蛙のバリアント名はバニラに翻訳が無いため、プラグイン内蔵の日本語名（日本語 Wiki 準拠・全言語共通）を出す。
 - **Paper 26.2 は experimental（alpha）**。レジストリ / Translatable / Advancement API の変更があり得るため、
   ビルド時に最新ビルド番号と Javadoc を確認し、`translationKeyFor` のフォールバックは必ず残すこと。
 
