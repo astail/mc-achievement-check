@@ -180,7 +180,7 @@ public final class AchievementGui implements InventoryHolder {
                 int shown = Math.min(remaining.size(), limit);
                 for (int i = 0; i < shown; i++) {
                     lore.add(noItalic(Component.text("  ✘ ", NamedTextColor.RED)
-                            .append(reader.criterionName(remaining.get(i)).color(NamedTextColor.RED))));
+                            .append(reader.criterionName(adv, remaining.get(i)).color(NamedTextColor.RED))));
                 }
                 int rest = remaining.size() - shown;
                 if (rest > 0) {
@@ -245,7 +245,7 @@ public final class AchievementGui implements InventoryHolder {
                 : (awarded ? Material.LIME_DYE : Material.GRAY_DYE);
         ItemStack item = new ItemStack(iconMat);
         item.editMeta(meta -> {
-            Component name = reader.criterionName(criterion);
+            Component name = reader.criterionName(detailAdvancement, criterion);
             if (awarded) {
                 meta.displayName(noItalic(Component.text("✔ ", NamedTextColor.GREEN)
                         .append(name.color(NamedTextColor.GREEN))));
