@@ -1,5 +1,5 @@
 name: AchievementCheck
-version: 1.0.0
+version: 1.1.0
 main: io.github.astail.achievementcheck.AchievementCheckPlugin
 description: "バニラ実績の達成状況と不足条件（未訪問バイオームなど）を確認できるプラグインです。"
 api-version: '26.2'

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # AchievementCheck の jar をビルドするだけのスクリプト（JDK25 + Maven）。
-# 生成物: target/AchievementCheck-1.0.0.jar
+# 生成物: target/AchievementCheck-1.1.0.jar
 #
 set -euo pipefail
 
